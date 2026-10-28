@@ -132,18 +132,24 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
 
 ## Что где лежит
 
-| Модуль | Порт чего |
+| Файл | Назначение |
 |---|---|
-| `Http.Router` | `http/http_server.ts` — роутинг, body/dig/gzip, cookie, CORS, рендер ответа |
-| `Dispatcher` | `Dispatcher.ts` — пайплайн transform → enrich → handle → listeners, регистрации удалённых сервисов (`__iamalive`/`status`, TTL 15с) |
-| `Rpc` | rock-me-ts `RPCAgnostic` + `RPCAdapterRedis` — JSON-RPC по Redis pub/sub, multi-запросы к энричерам |
-| `TreeBus` | `bus/tree.ts` — иерархический роутинг ключей (чистая структура, без процесса) |
-| `Handlers` / `Enrichers` / `Transformers` | `handlers/*`, `enrichers/userdata.ts`, `transformers/*` (MP Android/iOS/iOS-native, PostHog, track_batch) |
-| `Helpers` | `helpers/*` — path_parts, cyrb53 (бит-в-бит с JS, UTF-16), flatten_dict, uid, JWT-decode |
-| `Config` | rock-me-ts `AppConfig` — `config/*.yml` через EEx (аналог EJS) |
-| `Ids` | `TheIds` — flake (формат flake-idgen) и round-counter для RPC id |
-| `StaticData` | `StaticData.ts` — web-sdk lib.js с rtConfig-прелюдией, index/favicon |
-| `Metrics` | statsd UDP (counters + timings, префикс `krn`) |
+| `lib/rockstat_front/application.ex` | точка входа: загрузка конфига и статики, дерево супервизора (Metrics, Ids, Redix, Rpc, Dispatcher, Bandit) |
+| `lib/rockstat_front/http/router.ex` | HTTP-слой (Plug под Bandit): роутинг, разбор тела (JSON/urlencoded/gzip), dig-проверка, uid-кука, CORS, рендер ответов |
+| `lib/rockstat_front/dispatcher.ex` | пайплайн transform → enrich → handle → broadcast; учёт регистраций удалённых сервисов (`__iamalive`/`status`, TTL 15 с), роутинг-снэпшот в ETS |
+| `lib/rockstat_front/rpc.ex` | JSON-RPC 2.0 поверх Redis pub/sub: запросы/уведомления, multi-запросы к энричерам, локальные методы |
+| `lib/rockstat_front/tree_bus.ex` | иерархический роутинг ключей `in.gen.*` — чистая структура данных без процесса |
+| `lib/rockstat_front/handlers.ex` | встроенные обработчики: Track, Pixel, Redirect, Hello, Static + дефолтный ответ |
+| `lib/rockstat_front/enrichers.ex` | UserData: чтение/запись пользовательских данных в Redis-хэш `s:<uid>` |
+| `lib/rockstat_front/transformers.ex` | разборка батчей: Mixpanel Android/iOS/iOS-native, PostHog, универсальный track_batch |
+| `lib/rockstat_front/band_response.ex` | структура ответа `BandResponse` (`type__`: data/pixel/redirect/error) и её JSON-форма для native-режима |
+| `lib/rockstat_front/helpers.ex` | path_parts, валидация uid/имён, cyrb53 (бит-в-бит с JS), flatten_dict, JWT-decode, CORS-origin |
+| `lib/rockstat_front/config.ex` | загрузка `config/*.yml` через EEx-шаблонизацию, мерж секций prod/dev, доступ через `persistent_term` |
+| `lib/rockstat_front/ids.ex` | генерация id: flake (snowflake-формат) и round-counter для RPC |
+| `lib/rockstat_front/static_data.ex` | предзагрузка статики: web-sdk `lib.js` с rtConfig-прелюдией, index/favicon из `priv/static/` |
+| `lib/rockstat_front/metrics.ex` | statsd по UDP: counters + timings, префикс `krn` |
+| `config/config.yml` | конфигурация сервиса (EEx-шаблон: env-переменные, алиасы сервисов, привязка хендлеров/энричеров/трансформеров к ключам) |
+| `priv/static/` | заставка `index.html` и `favicon.ico` |
 
 ## Отличия от TS-версии (намеренные)
 
