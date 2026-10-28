@@ -27,6 +27,25 @@ MIX_ENV=prod mix release
 _build/prod/rel/rockstat_front/bin/rockstat_front start
 ```
 
+## Docker
+
+```sh
+docker build -t rockstat-front .
+docker run -d -p 8080:8080 \
+  -e REDIS_DSN=redis://redis:6379 \
+  -e DOMAIN=example.com \
+  rockstat-front
+```
+
+Multi-stage сборка: release собирается в образе `hexpm/elixir`, рантайм —
+`debian:bookworm-slim` (~200 МБ), процесс работает не под root,
+`NODE_ENV=production` выставлен по умолчанию. YAML-конфиг лежит в образе
+в `/app/config` — его можно подменить volume-ом. Файлы web-sdk в образ
+не входят (пути в конфиге указывают на `../node_modules/...`): чтобы
+работал `/lib.js`, смонтируйте их в `/node_modules/@rockstat/web_sdk/dist`
+или поправьте секцию `static` конфига. Healthcheck балансировщика —
+`GET /health`.
+
 ## HTTP API
 
 Принимаются методы `GET`, `POST` и `OPTIONS` (CORS preflight); остальные

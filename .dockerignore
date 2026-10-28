@@ -1,0 +1,8 @@
+_build/
+deps/
+.git/
+.elixir_ls/
+test/
+*.md
+Dockerfile
+.dockerignore
