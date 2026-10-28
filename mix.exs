@@ -6,6 +6,7 @@ defmodule RockstatFront.MixProject do
       app: :rockstat_front,
       version: "4.4.0",
       elixir: "~> 1.15",
+      package: [licenses: ["Apache-2.0"]],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]

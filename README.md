@@ -1,6 +1,7 @@
 # Rockstat Front (Elixir)
 
-Elixir/BEAM-порт сервиса `@rockstat/front` (TypeScript). Полностью совместим
+Elixir/BEAM-порт сервиса `@rockstat/front` (TypeScript).
+Лицензия: [Apache 2.0](LICENSE). Полностью совместим
 по проводу с остальной платформой: JSON-RPC 2.0 поверх Redis pub/sub
 (протокол rock-me-ts), формат `BandResponse` с `type__`, flake-идентификаторы,
 cyrb53-подпись тела (`dig`), контракт HTTP-ответов (CORS/cookie/заголовки).
@@ -66,3 +67,8 @@ curl -X POST -H 'Content-Type: application/json' \
   -d '{"api_key":"k","sent_at":"2026-01-01T00:00:00Z","batch":[{"event":"e","timestamp":"2026-01-01T00:00:00Z"}]}' \
   localhost:8080/posthog/batch                     # транформер → broadcast
 ```
+
+## Лицензия
+
+Apache License 2.0 — см. [LICENSE](LICENSE).
+Copyright 2026 Dmitry Rodin.
