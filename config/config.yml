@@ -1,0 +1,92 @@
+name: Rockstat Front service
+version: "<%= @version %>"
+
+identify:
+  param: uid # cookie param name
+  cookieMaxAge: <%= 3 * 365 * 24 * 60 * 60 %>
+  cookieDomain: auto
+  cookiePath: /
+  domain: <%= @env["DOMAIN"] %>
+
+http:
+  host: <%= @env["HOST"] || "0.0.0.0" %>
+  port: <%= @env["PORT"] || "8080" %>
+  # mark in url segment which tell return native response
+  url_mark: band
+  # services to channels map
+  sevices_map:
+    away: redir
+    go: redir
+    gif: pixel
+  services_params:
+    gifq:
+      alias_for: pixel
+      uid_param: uidq
+      collect_cookies: ['uid']
+    t4k:
+      alias_for: track
+      # YAML 1.2 (yaml_elixir): booleans must be true/false, `yes` parses as a string
+      dig: true
+      url_check_websdk: true
+      action_params:
+        ping38:
+          collect_all_cookies: true
+          remove_cookies:
+            REMEMBERME: true
+            PHPSESSID: true
+          jwt_decode:
+            jwt_bridge: true
+            user_token: true
+
+rpc:
+  name: front_<%= @env["WORKER_ID"] || "1" %>
+  channels:
+    - front_<%= @env["WORKER_ID"] || "1" %>
+    - director
+  listen_all: false
+  listen_direct: true
+
+redis:
+  dsn: <%= @env["REDIS_DSN"] || "redis://127.0.0.1:6379" %>
+
+log:
+  level: <%= @env["LOG_LEVEL"] || "info" %>
+
+client: {} # do not remove. root element should be present
+
+static:
+  lib.js: "../node_modules/@rockstat/web_sdk/dist/lib.js"
+  lib-dev.js: "../node_modules/@rockstat/web_sdk/dist/lib-dev.js"
+
+bus:
+  enrichers:
+    UserDataEnricher: [in.gen.track, in.gen.userdata]
+  handlers:
+    PixelHandler: in.gen.pixel
+    RedirectHandler: in.gen.redir
+    TrackHandler: in.gen.track
+    HelloHandler: in.gen.hello
+    StaticHandler: in.gen.static
+  transformers:
+    MPAndroidTransformer:
+      - in.gen.app-track.events
+      - in.gen.mp_handler.events_betand
+      - in.gen.mp_handler.events_mbc
+    MPIOSTransformer:
+      - in.gen.app-track-ios.track-ios
+      - in.gen.app-track-ios.events
+      - in.gen.mp_handler.track-ios
+    MPIOSNativeTransformer:
+      - in.gen.ios.track
+    PHNativeTransformer:
+      - in.gen.posthog.batch
+
+metrics:
+  statsd:
+    host: <%= @env["STATSD_HOST"] || "127.0.0.1" %>
+    port: 8125
+    prefix: krn
+
+# env depended variables
+production: {}
+dev: {}
