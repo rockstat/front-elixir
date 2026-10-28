@@ -65,6 +65,7 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
 | `GET /` | заставка Rockstat (`text/html`) |
 | `GET /favicon.ico` | иконка (`image/x-icon`) |
 | `GET /lib.js` | web-sdk (`lib.js`, в dev — `lib-dev.js`) с приклеенной прелюдией: `configure` c `initialUid`, `urlMark` и опциями `client.common`, плюс `setTimeDelta` для поправки клиентских часов |
+| `GET /health` | healthcheck для балансировщика: `200 {"status":"ok"}`, без пайплайна и записи в шину |
 | `GET /coffee` | `418 I'm a teapot`, заголовок `X-My-Name: <имя сервиса>` |
 | `OPTIONS <любой>` | CORS preflight: `Allow-Methods: POST,GET`, `Allow-Headers`, `Max-Age: 86400` |
 
@@ -98,7 +99,7 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
 | `/redir/<name>?to=<url>`, алиасы `/away/*`, `/go/*` | RedirectHandler | `302` на `to`; без `to` → `400` |
 | `/hello/ping`, `/hello/hello` | HelloHandler | `{"message": "pong"}` / `{"message": "hi"}`; прочее → `404` |
 | `/static/<имя>.<ext>` | StaticHandler | файл из `public/` (имя строго `[a-zA-Z0-9_-]{1,50}\.[a-zA-Z0-9]{1,5}`, content-type по расширению); нет файла → `400` |
-| `/userdata/update?uid=...` | энричер UserData | пишет поля `data` (кроме `uid`, `ttl`) в Redis-хэш `s:<uid>` с TTL (`ttl`, по умолчанию 30 дней); любое другое событие `track`/`userdata` с uid получает сохранённое обратно в `data.stored` |
+| `/userdata/update?uid=...` | энричер UserData (**отключён по умолчанию**) | пишет поля `data` (кроме `uid`, `ttl`) в Redis-хэш `s:<uid>` с TTL (`ttl`, по умолчанию 30 дней); любое другое событие `track`/`userdata` с uid получает сохранённое обратно в `data.stored`. Включается раскомментированием `UserDataEnricher` в `bus.enrichers` конфига |
 
 ### Алиасы с особыми параметрами (`services_params` конфига)
 
@@ -159,13 +160,26 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
   1–2 инстансов за балансировщиком, ферма воркеров по портам не нужна.
 - `GET /` отдаёт заставку, `GET /favicon.ico` — иконку.
 - WebSocket-транспорта нет — приём только по HTTP.
-- Fingerprint-обогащение (хэш ip+ua) не реализовано; из энричеров
-  встроен только UserData (Redis).
+- Генерация id — на lock-free атомиках, энричеры выполняются параллельно,
+  gzip-тела распаковываются стримингом с потолком 1 МБ на распакованный
+  размер (защита от gzip-бомб).
+- Fingerprint-обогащение (хэш ip+ua) не реализовано. Встроенный энричер
+  UserData (Redis) по умолчанию выключен в конфиге.
 - Keep-alive соединениями управляет Bandit; `read_timeout` выставлен 75 с —
   держите его больше, чем idle-таймаут upstream keep-alive у прокси
   (у nginx по умолчанию 60 с), иначе возможны 502 на гонке закрытия.
 - Конфиг парсится по спеке YAML 1.2: булевы значения — строго
   `true`/`false` (`yes`/`no` станут строками).
+
+## Тесты
+
+```sh
+mix test
+```
+
+Юнит-тесты (cyrb53-векторы из JS, path_parts, TreeBus, трансформеры, id-шки)
+плюс интеграционные на HTTP-слой через Plug.Test — Redis и открытый порт
+не требуются (в тестовом окружении listener не поднимается).
 
 ## Смоук-тест
 

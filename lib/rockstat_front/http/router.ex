@@ -39,6 +39,12 @@ defmodule RockstatFront.Http.Router do
         e ->
           Logger.error("exception caused | handle exec: #{Exception.message(e)}")
           {BandResponse.error(status: 500), conn}
+      catch
+        # exit (например, перегруженный GenServer превысил таймаут call-а)
+        # тоже не должен обрывать соединение — отвечаем 500
+        :exit, reason ->
+          Logger.error("exit caused | handle exec: #{inspect(reason)}")
+          {BandResponse.error(status: 500), conn}
       end
 
     elapsed = System.monotonic_time(:millisecond) - started
@@ -187,6 +193,12 @@ defmodule RockstatFront.Http.Router do
 
   # кроме preflight принимаем только GET и POST
   defp route(%{method: m}) when m not in ["GET", "POST"], do: BandResponse.error(status: 400)
+
+  # healthcheck для балансировщика: 200 без пайплайна и без записи в шину.
+  # Путь зарезервирован — сервис с именем "health" сюда не попадёт.
+  defp route(%{path: "/health"}) do
+    BandResponse.data(data: %{"status" => "ok"})
+  end
 
   # health-check-шутка из оригинала: 418 I'm a teapot + имя сервиса в заголовке
   defp route(%{path: "/coffee"}) do
@@ -352,23 +364,51 @@ defmodule RockstatFront.Http.Router do
   # не-POST запросы тела не имеют
   defp read_request_body(conn, _content_type, _dig), do: {:ok, %{}, conn}
 
-  defp maybe_gunzip(raw, "gzip") do
-    {:ok, :zlib.gunzip(raw)}
-  rescue
-    _ -> :error
+  # Распаковка gzip СТРИМИНГОМ с потолком на размер выхода: лимит 1МБ
+  # должен ограничивать распакованные данные, а не сжатые, иначе
+  # gzip-бомба в десятки КБ раздувается в сотни МБ памяти (DoS).
+  defp maybe_gunzip(raw, "gzip"), do: safe_gunzip(raw, @body_limit)
+  defp maybe_gunzip(raw, _), do: {:ok, raw}
+
+  defp safe_gunzip(raw, limit) do
+    z = :zlib.open()
+
+    try do
+      # 16 + 15 бит окна = формат gzip
+      :ok = :zlib.inflateInit(z, 31)
+      inflate_chunks(z, :zlib.safeInflate(z, raw), [], 0, limit)
+    rescue
+      _ -> :error
+    after
+      :zlib.close(z)
+    end
   end
 
-  defp maybe_gunzip(raw, _), do: {:ok, raw}
+  defp inflate_chunks(z, {status, chunk}, acc, size, limit) do
+    size = size + IO.iodata_length(chunk)
+
+    cond do
+      # распакованное превысило лимит — обрываем, не доводя до конца
+      size > limit -> :error
+      status == :finished -> {:ok, IO.iodata_to_binary([acc | chunk])}
+      # :continue — просим следующую порцию (вход уже передан целиком)
+      true -> inflate_chunks(z, :zlib.safeInflate(z, []), [acc | chunk], size, limit)
+    end
+  end
 
   defp verify_dig(_raw, nil), do: :ok
 
   defp verify_dig(raw, dig) do
+    # битый UTF-8 в теле не считается нашей ошибкой: cyrb53 на нём
+    # упадёт — отвечаем 400 (подпись заведомо не сходится), а не 500
     if Helpers.cyrb53(raw) == dig do
       :ok
     else
       Logger.info("DIGS not eq")
       :error
     end
+  rescue
+    _ -> :error
   end
 
   defp parse_body(raw, content_type) do

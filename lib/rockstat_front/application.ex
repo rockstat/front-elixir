@@ -10,6 +10,8 @@ defmodule RockstatFront.Application do
     # могут читать их из persistent_term сразу в init
     config = RockstatFront.Config.load!()
     RockstatFront.StaticData.load!()
+    RockstatFront.Ids.setup!()
+    configure_logger(config)
 
     http = config["http"] || %{}
     port = to_int(http["port"], 8080)
@@ -19,35 +21,63 @@ defmodule RockstatFront.Application do
       "Starting #{config["name"]} v#{config["version"]} (#{RockstatFront.Config.env()})"
     )
 
-    Logger.info("HTTP transport #{host}:#{port}")
-
     # Порядок детей важен: Rpc нужен Dispatcher-у (регистрирует методы
     # в init), :redix — энричеру UserData, TaskSup — broadcast-рассылке
     children = [
-      # супервизор фоновых задач (broadcast, локальные RPC-методы)
+      # супервизор фоновых задач (broadcast, энричеры, локальные RPC-методы)
       {Task.Supervisor, name: RockstatFront.TaskSup},
       RockstatFront.Metrics,
-      RockstatFront.Ids,
-      # общее Redis-соединение для команд (HGETALL/HMSET в UserData)
+      # общее Redis-соединение для команд (HGETALL/HSET в UserData)
       {Redix,
        {RockstatFront.Config.get(["redis", "dsn"], "redis://127.0.0.1:6379"), [name: :redix]}},
       RockstatFront.Rpc,
-      RockstatFront.Dispatcher,
-      {
-        Bandit,
-        # keep idle keep-alive connections longer than nginx upstream
-        # keepalive_timeout (60s default) to avoid 502 close races
-        plug: RockstatFront.Http.Router,
-        scheme: :http,
-        ip: parse_ip(host),
-        port: port,
-        http_options: [],
-        thousand_island_options: [read_timeout: 75_000]
-      }
+      RockstatFront.Dispatcher
     ]
+
+    # в тестовом окружении (config :rockstat_front, server: false)
+    # HTTP-листener не поднимается
+    children =
+      if Application.get_env(:rockstat_front, :server, true) do
+        Logger.info("HTTP transport #{host}:#{port}")
+
+        children ++
+          [
+            {
+              Bandit,
+              # держим idle keep-alive соединения дольше, чем upstream
+              # keepalive_timeout у nginx (60с по умолчанию), иначе
+              # возможны 502 на гонке закрытия
+              plug: RockstatFront.Http.Router,
+              scheme: :http,
+              ip: parse_ip(host),
+              port: port,
+              thousand_island_options: [read_timeout: 75_000]
+            }
+          ]
+      else
+        children
+      end
 
     opts = [strategy: :one_for_one, name: RockstatFront.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Применяет log.level из YAML-конфига (куда он попадает из LOG_LEVEL)
+  defp configure_logger(config) do
+    level =
+      case get_in(config, ["log", "level"]) do
+        l when l in ["debug", "info", "notice", "warning", "error", "critical"] ->
+          String.to_existing_atom(l)
+
+        # pino-имя уровня из старых конфигов
+        "warn" ->
+          :warning
+
+        _ ->
+          :info
+      end
+
+    Logger.configure(level: level)
   end
 
   defp parse_ip(host) do

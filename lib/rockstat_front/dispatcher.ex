@@ -68,17 +68,19 @@ defmodule RockstatFront.Dispatcher do
 
     # Фаза 2: обогащение. Запускаются ВСЕ подходящие энричеры:
     # внутренние (UserData из Redis) и шлюз удалённых (:remote_gateway
-    # подписан на '*'). Результаты мержатся в msg["data"].
+    # подписан на '*') — параллельно, как Promise.all в оригинале.
+    # Результаты мержатся в msg["data"].
     enrichments =
       routing.enrich
       |> TreeBus.collect(key)
       |> Enum.map(fn
         {{:internal, mod}, _} ->
-          safe(fn -> mod.handle(key, msg) end, %{})
+          fn -> safe(fn -> mod.handle(key, msg) end, %{}) end
 
         {:remote_gateway, _} ->
-          remote_enrich(routing, key, msg)
+          fn -> remote_enrich(routing, key, msg) end
       end)
+      |> run_concurrently()
       |> Enum.reject(&(&1 == %{} or is_nil(&1)))
 
     {msg, submsgs} =
@@ -158,6 +160,25 @@ defmodule RockstatFront.Dispatcher do
   defp error_message(:timeout), do: "Request timeout"
   defp error_message(%{"message" => m}), do: m
   defp error_message(other), do: inspect(other)
+
+  # Параллельный запуск энричеров. Один энричер выполняется на месте
+  # (без накладных расходов на процесс); несколько — в Task-ах с общим
+  # потолком ожидания: не ответивший вовремя даёт %{} и убивается,
+  # не задерживая ответ клиенту.
+  @enrich_deadline 2_000
+
+  defp run_concurrently([]), do: []
+  defp run_concurrently([fun]), do: [fun.()]
+
+  defp run_concurrently(funs) do
+    funs
+    |> Enum.map(&Task.Supervisor.async_nolink(RockstatFront.TaskSup, &1))
+    |> Task.yield_many(timeout: @enrich_deadline, on_timeout: :kill_task)
+    |> Enum.map(fn
+      {_task, {:ok, value}} -> value
+      {_task, _timeout_or_crash} -> %{}
+    end)
+  end
 
   # ошибка одной фазы не роняет запрос: логируем и продолжаем с fallback-ом
   defp safe(fun, fallback) do

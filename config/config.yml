@@ -60,7 +60,10 @@ static:
 
 bus:
   enrichers:
-    UserDataEnricher: [in.gen.track, in.gen.userdata]
+    # userdata отключён: каждый track-запрос ходил в Redis через одно
+    # соединение. Вернуть — раскомментировать (и см. Enrichers.UserData).
+    # UserDataEnricher: [in.gen.track, in.gen.userdata]
+    {}
   handlers:
     PixelHandler: in.gen.pixel
     RedirectHandler: in.gen.redir
