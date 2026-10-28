@@ -1,9 +1,10 @@
 # Rockstat Front (Elixir)
 
-Elixir/BEAM-порт сервиса `@rockstat/front` (TypeScript). Полностью совместим
-по проводу с остальной платформой: JSON-RPC 2.0 поверх Redis pub/sub
-(протокол rock-me-ts), формат `BandResponse` с `type__`, flake-идентификаторы,
-cyrb53-подпись тела (`dig`), контракт HTTP-ответов (CORS/cookie/заголовки).
+Front-сервис платформы Rockstat на Elixir/BEAM: приём трекинг-событий по
+HTTP, их трансформация и обогащение, раздача web-sdk. Полностью совместим
+по проводу с остальной платформой: JSON-RPC 2.0 поверх Redis pub/sub,
+формат `BandResponse` с `type__`, flake-идентификаторы, cyrb53-подпись
+тела (`dig`), контракт HTTP-ответов (CORS/cookie/заголовки).
 
 Лицензия: [Apache 2.0](LICENSE).
 
@@ -14,9 +15,10 @@ mix deps.get
 PORT=8080 REDIS_DSN=redis://127.0.0.1:6379 mix run --no-halt
 ```
 
-Переменные окружения те же, что у TS-версии: `HOST`, `PORT`, `REDIS_DSN`,
-`WORKER_ID`, `DATACENTER_ID`, `DOMAIN`, `STATSD_HOST`, `LOG_LEVEL`,
-`NODE_ENV=production` для prod-режима.
+Переменные окружения: `HOST`, `PORT`, `REDIS_DSN`, `WORKER_ID`,
+`DATACENTER_ID`, `DOMAIN`, `STATSD_HOST`, `LOG_LEVEL`,
+`NODE_ENV=production` для prod-режима (имена совместимы с деплоем
+остальных сервисов платформы).
 
 Prod-сборка (release, один артефакт без Erlang на хосте не требуется):
 
@@ -143,7 +145,7 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
 | `lib/rockstat_front/enrichers.ex` | UserData: чтение/запись пользовательских данных в Redis-хэш `s:<uid>` |
 | `lib/rockstat_front/transformers.ex` | разборка батчей: Mixpanel Android/iOS/iOS-native, PostHog, универсальный track_batch |
 | `lib/rockstat_front/band_response.ex` | структура ответа `BandResponse` (`type__`: data/pixel/redirect/error) и её JSON-форма для native-режима |
-| `lib/rockstat_front/helpers.ex` | path_parts, валидация uid/имён, cyrb53 (бит-в-бит с JS), flatten_dict, JWT-decode, CORS-origin |
+| `lib/rockstat_front/helpers.ex` | path_parts, валидация uid/имён, cyrb53 (совместим с подписью web-sdk), flatten_dict, JWT-decode, CORS-origin |
 | `lib/rockstat_front/config.ex` | загрузка `config/*.yml` через EEx-шаблонизацию, мерж секций prod/dev, доступ через `persistent_term` |
 | `lib/rockstat_front/ids.ex` | генерация id: flake (snowflake-формат) и round-counter для RPC |
 | `lib/rockstat_front/static_data.ex` | предзагрузка статики: web-sdk `lib.js` с rtConfig-прелюдией, index/favicon из `priv/static/` |
@@ -151,18 +153,19 @@ SameSite=None`, `Domain` — из `X-Forwarded-Host`, иначе по `identify`
 | `config/config.yml` | конфигурация сервиса (EEx-шаблон: env-переменные, алиасы сервисов, привязка хендлеров/энричеров/трансформеров к ключам) |
 | `priv/static/` | заставка `index.html` и `favicon.ico` |
 
-## Отличия от TS-версии (намеренные)
+## Особенности реализации
 
-- **Один процесс на все ядра.** Вместо N воркеров Node на портах
-  10003–10061 достаточно 1–2 инстансов; upstream-пул nginx сокращается.
-- `GET /` отдаёт index (в TS корень падал на проверке имени сервиса и
-  возвращал 400 — route для index был мёртвым кодом).
-- WebSocket-сервер не перенесён: в TS `AppServer` он закомментирован.
-- `FingerPrintEnricher` (xxhash) не перенесён — отключён в конфиге TS-версии.
-- Keep-alive поведением управляет Bandit; `read_timeout` выставлен 75с —
-  больше дефолтных 60с upstream keep-alive у nginx (см. историю с 502).
-- YAML парсится по спеке 1.2: булевы значения в конфиге — `true/false`
-  (js-yaml принимал `yes/no`).
+- **Один процесс на все ядра.** BEAM утилизирует всю машину сам: достаточно
+  1–2 инстансов за балансировщиком, ферма воркеров по портам не нужна.
+- `GET /` отдаёт заставку, `GET /favicon.ico` — иконку.
+- WebSocket-транспорта нет — приём только по HTTP.
+- Fingerprint-обогащение (хэш ip+ua) не реализовано; из энричеров
+  встроен только UserData (Redis).
+- Keep-alive соединениями управляет Bandit; `read_timeout` выставлен 75 с —
+  держите его больше, чем idle-таймаут upstream keep-alive у прокси
+  (у nginx по умолчанию 60 с), иначе возможны 502 на гонке закрытия.
+- Конфиг парсится по спеке YAML 1.2: булевы значения — строго
+  `true`/`false` (`yes`/`no` станут строками).
 
 ## Смоук-тест
 
